@@ -1,42 +1,63 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
 import Peer from 'simple-peer';
 
-const App = () => {
-  const videoRef = useRef();
+const ScreenShare = () => {
+  const [isSharing, setIsSharing] = useState(false);
+  const [myStream, setMyStream] = useState(null);
+  const [captureStream, setCaptureStream] = useState(null);
+  const videoRef = useRef(null);
+
+  const socket = io(); // 서버에 연결
 
   useEffect(() => {
-    const peer = new Peer({ initiator: true, wsVersion: 13 });
-
-    // 화면 공유 버튼 클릭 이벤트 핸들러
-    const startScreenShare = async () => {
+    // 미디어 스트림 가져오기
+    const getMedia = async () => {
       try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        videoRef.current.srcObject = stream;
-        peer.addStream(stream);
-
-        peer.on('signal', data => {
-          console.log('Signal data:', data);
-          // A가 B에게 시그널을 전송
-          // 이 시그널은 B가 C에게 전달해야 함
-          // (예: 채팅, 서버 등을 통해 전달)
-        });
+        const initialConstraints = { audio: true, video: { facingMode: 'user' } };
+        const stream = await navigator.mediaDevices.getUserMedia(initialConstraints);
+        setMyStream(stream);
       } catch (error) {
-        console.error('Error starting screen share:', error);
+        console.error(error);
       }
     };
 
-    // 화면 공유 시작 버튼
-    const shareButton = document.getElementById('shareButton');
-    shareButton.addEventListener('click', startScreenShare);
+    getMedia(); // 컴포넌트 마운트 시 미디어 스트림 가져오기
 
+    return () => {
+      // 컴포넌트 언마운트 시 미디어 스트림 해제
+      myStream && myStream.getTracks().forEach(track => track.stop());
+    };
   }, []);
+
+  const startCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      setCaptureStream(stream);
+      videoRef.current.srcObject = stream;
+      setIsSharing(true);
+      socket.emit('screen-sharing', true); // 서버에 화면 공유 시작 이벤트 전송
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const stopCapture = () => {
+    captureStream.getTracks().forEach(track => track.stop());
+    setCaptureStream(null);
+    videoRef.current.srcObject = myStream;
+    setIsSharing(false);
+    socket.emit('screen-sharing', false); // 서버에 화면 공유 종료 이벤트 전송
+  };
 
   return (
     <div>
-      <video ref={videoRef} autoPlay muted />
-      <button id="shareButton">화면 공유 시작</button>
+      <video ref={videoRef} autoPlay playsInline muted={!isSharing} width="400" height="400" />
+      <button onClick={isSharing ? stopCapture : startCapture}>
+        {isSharing ? 'Stop Sharing' : 'Start Sharing'}
+      </button>
     </div>
   );
 };
 
-export default App;
+export default ScreenShare;
